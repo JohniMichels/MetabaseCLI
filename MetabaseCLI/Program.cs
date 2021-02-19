@@ -16,18 +16,18 @@ namespace MetabaseCLI
 {
     class Program
     {
-        private static Option ServerOption = new Option<string>(
+        private static readonly Option ServerOption = new Option<string>(
             aliases: new string[] {"--server", "-s"},
             getDefaultValue: () => Environment.GetEnvironmentVariable("MB_SERVER")??"",
             description: "The url of the metabase server"
         ) {IsRequired = true};
-        private static Option UserNameOption = new Option<string>(
+        private static readonly Option UserNameOption = new Option<string>(
             aliases: new string[] {"--user", "-u"},
             getDefaultValue: () => Environment.GetEnvironmentVariable("MB_USERNAME")??"",
             description: "The username used on server calls"
         ) {IsRequired = true};
 
-        private static Option PasswordOption = new Option<string>(
+        private static readonly Option PasswordOption = new Option<string>(
             aliases: new string[] {"--password", "-p"},
             getDefaultValue: () => Environment.GetEnvironmentVariable("MB_PASSWORD")??"",
             description: "The password used on server calls"
@@ -35,7 +35,7 @@ namespace MetabaseCLI
         static Task<int> Main(string[] args)
         {
             var rootCommand = new RootCommand(
-                "Simple communication system between local files and a given metabae server."
+                "Simple communication system between local files and a given metabase server."
             )
             {
                 ServerOption,

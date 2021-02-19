@@ -96,6 +96,18 @@ namespace MetabaseCLI
             return command;
         }
 
+        internal static IDictionary<string, dynamic?> RemoveParentWhitespace(this IDictionary<string, dynamic?> entity)
+        {
+            if (entity.TryGetValue("parent_id", out var parentId) && (parentId == null || ((int)parentId == 0)))
+            {
+                entity.Remove("parent_id");
+            }
+            return entity;
+        }
+
+        internal static string Join(this IEnumerable<string> source, string separator)
+            => string.Join(separator, source);
+
         internal static IDictionary<TValue, TKey> Reverse<TKey, TValue>(
             this IDictionary<TKey, TValue> dictionary
         )
@@ -103,5 +115,11 @@ namespace MetabaseCLI
         {
             return dictionary.ToDictionary(kv => kv.Value, kv => kv.Key);
         }
+
+        internal static IDictionary<TKey, TValue> RemoveNullValues<TKey, TValue>(
+            this IDictionary<TKey, TValue?> dictionary
+        )
+        where TKey : notnull
+        => dictionary.Where(kv => kv.Value == null).ToDictionary(kv => kv.Key, kv => kv.Value!);
     }
 }

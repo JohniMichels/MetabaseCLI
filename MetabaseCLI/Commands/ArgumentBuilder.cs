@@ -78,13 +78,13 @@ namespace MetabaseCLI
             string? ValidateFile(SymbolResult r) =>
                 ((
                     new JsonSerializer().Deserialize(
-                        new FileInfo(r.Tokens.First().Value).OpenText(),
-                        typeof(IDictionary<string, dynamic>)) is IDictionary<string, dynamic> content
+                        new FileInfo(r.Tokens[0].Value).OpenText(),
+                        typeof(IDictionary<string, dynamic?>)) is IDictionary<string, dynamic?> content
                 )
-                && content.Count() > 0
+                && content.Count > 0
                 ) ?
                 null :
-                $"The content in {r.Tokens.First().Value} is not a valid {entity}";
+                $"The content in {r.Tokens[0].Value} is not a valid {entity}";
 
             (result switch
             {
@@ -104,22 +104,22 @@ namespace MetabaseCLI
                 IsRequired = false
             };
             result.AddValidator(r => (
-                JsonConvert.DeserializeObject<IDictionary<string, dynamic>>(r.Tokens.First().Value)
-                is IDictionary<string, dynamic> content
-                && content.Count() > 0 ?
+                JsonConvert.DeserializeObject<IDictionary<string, dynamic?>>(r.Tokens[0].Value)
+                is IDictionary<string, dynamic?> content
+                && content.Count > 0 ?
                 null :
                 $"The given string is not a valid {entity}"
             ));
             return result;
         }
-        internal static IDictionary<string, dynamic> ParseContent(string content, FileInfo file)
+        internal static IDictionary<string, dynamic?> ParseContent(string content, FileInfo file)
         {
             return !string.IsNullOrWhiteSpace(content) ?
-                JsonConvert.DeserializeObject<IDictionary<string, dynamic>>(content) :
-                (IDictionary<string, dynamic>?)(
+                JsonConvert.DeserializeObject<IDictionary<string, dynamic?>>(content) :
+                (IDictionary<string, dynamic?>)(
                     new JsonSerializer().Deserialize(
                         file.OpenText(),
-                        typeof(IDictionary<string, dynamic>)
+                        typeof(IDictionary<string, dynamic?>)
                     )
                 )!;
         }

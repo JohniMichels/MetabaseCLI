@@ -16,7 +16,6 @@ namespace MetabaseCLI
     {
         
         private static IObservable<TResponse> InternalSend<TResponse>(
-            this Session session,
             object objectBody,
             Func<HttpContent, IObservable<HttpResponseMessage>> generator
         )
@@ -35,23 +34,14 @@ namespace MetabaseCLI
                 }).Select(response => JsonConvert.DeserializeObject<TResponse>(response));
         }
 
-        private static IObservable<TResponse> InternalSend<TResponse>(
-            this Session session,
-            IObservable<HttpResponseMessage> generator
-        )
-        where TResponse : notnull
-        {
-            return session.InternalSend<TResponse>("", content => generator);
-        }
-
-        private static readonly object padLock = new object();
+        private static readonly object padLock = new();
         public static IObservable<string> InvalidateSession(
             this Session session
         )
         {
             return session.Client.DefaultRequestHeaders.Contains("X-Metabase-Session") ?
                 Observable.Return(session.Client.DefaultRequestHeaders.GetValues("X-Metabase-Session").First()) :
-                session.InternalSend<IDictionary<string, string>>(
+                InternalSend<IDictionary<string, string>>(
                     session.Credentials,
                     c => Observable.FromAsync(() => session.Client.PostAsync("session", c))
                 ).Select(d => d["id"]
@@ -73,7 +63,7 @@ namespace MetabaseCLI
         where TResponse : notnull
         {
             var invalidator = session.InvalidateSession();
-            var requester = session.InternalSend<TResponse>(
+            var requester = InternalSend<TResponse>(
                 objectBody,                     
                 content => generator(content)   
             );                                  

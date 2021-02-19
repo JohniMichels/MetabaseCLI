@@ -18,10 +18,12 @@ namespace MetabaseCLI
 
         public Session(SessionCredentials credentials)
         {
-            Client = new HttpClient();
-            Client.BaseAddress = new Uri(
+            Client = new HttpClient
+            {
+                BaseAddress = new Uri(
                 string.Format("{0}/api/", credentials.Server.TrimEnd('/'))
-            );
+            )
+            };
             Credentials = credentials;
         }
 
