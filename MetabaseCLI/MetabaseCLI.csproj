@@ -4,6 +4,9 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net5.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <Version>0.1-beta1.0</Version>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>metabase-cli</ToolCommandName>
   </PropertyGroup>
 
   <ItemGroup>
