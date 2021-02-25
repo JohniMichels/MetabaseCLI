@@ -206,8 +206,8 @@ namespace MetabaseCLI
                         session,
                         new Dictionary<string, dynamic?>()
                         {
-                            {"name", p.Split('/').Last().Replace("_\\_", "/")},
-                            {"parent_id", pathId.TryGetValue(p.Split("/").SkipLast(1).Join("/") + "/", out var parentId) ? parentId : null},
+                            {"name", p.Split('/', StringSplitOptions.RemoveEmptyEntries).Last().Replace("_\\_", "/")},
+                            {"parent_id", pathId.TryGetValue(p.Split("/", StringSplitOptions.RemoveEmptyEntries).SkipLast(1).Join("/") + "/", out var parentId) ? parentId : null},
                             {"color", "#999999"}
                         }.RemoveParentWhitespace())
                         .Do(r => pathId.TryAdd(p, (int)r["id"])))
