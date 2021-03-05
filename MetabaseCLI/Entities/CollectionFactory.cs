@@ -5,7 +5,7 @@ namespace MetabaseCLI.Entities
 {
     public class CollectionFactory : EntityFactory
     {
-        public CollectionFactory()
+        public CollectionFactory(Session session)
         :base(
             "collection",
             new [] { 
@@ -15,6 +15,7 @@ namespace MetabaseCLI.Entities
                 "personal_owner_id",
                 "archived"
             },
+            session,
             archivedItems: "archived=true",
             collectionField: "parent_id"
             )

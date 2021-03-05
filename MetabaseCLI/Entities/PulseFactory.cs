@@ -5,7 +5,7 @@ namespace MetabaseCLI.Entities
 {
     public class PulseFactory : EntityFactory
     {
-        public PulseFactory()
+        public PulseFactory(Session session)
         :base(
             "pulse",
             new [] { 
@@ -17,6 +17,7 @@ namespace MetabaseCLI.Entities
                 "skip_if_empty",
                 "archived"
             },
+            session,
             new Dictionary<string, IEnumerable<string>>(){
                 {
                     "cards",

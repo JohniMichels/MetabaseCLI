@@ -11,55 +11,57 @@ using System.Linq;
 using System.Text.Json;
 using MetabaseCLI.Entities;
 using System.CommandLine.IO;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using System.Reflection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Memory;
+using Serilog;
+using Serilog.Core;
 
 namespace MetabaseCLI
 {
     class Program
     {
-        private static readonly Option ServerOption = new Option<string>(
-            aliases: new string[] {"--server", "-s"},
-            getDefaultValue: () => Environment.GetEnvironmentVariable("MB_SERVER")??"",
-            description: "The url of the metabase server"
-        ) {IsRequired = true};
-        private static readonly Option UserNameOption = new Option<string>(
-            aliases: new string[] {"--user", "-u"},
-            getDefaultValue: () => Environment.GetEnvironmentVariable("MB_USERNAME")??"",
-            description: "The username used on server calls"
-        ) {IsRequired = true};
 
-        private static readonly Option PasswordOption = new Option<string>(
-            aliases: new string[] {"--password", "-p"},
-            getDefaultValue: () => Environment.GetEnvironmentVariable("MB_PASSWORD")??"",
-            description: "The password used on server calls"
-        ) {IsRequired = true};
-        static Task<int> Main(string[] args)
+        static int Main(string[] args)
         {
-            var rootCommand = new RootCommand(
-                "Simple communication system between local files and a given metabase server."
-            )
-            {
-                ServerOption,
-                UserNameOption,
-                PasswordOption
-            };
-            
-            var factories = new  List<EntityFactory>{
-                new CollectionFactory(),
-                new CardFactory(),
-                new DashboardFactory(),
-                new PulseFactory()
-            };
+            var host = Host
+                .CreateDefaultBuilder()
+                .ConfigureAppConfiguration(conf => conf.AddInMemoryCollection())
+                .ConfigureServices(ConfigureServices)
+                .UseSerilog()
+                .Build();
+            Log.Logger = new LoggerConfiguration()
+                .ReadFrom.Configuration(host.Services.GetRequiredService<IConfiguration>())
+                .MinimumLevel.ControlledBy(host.Services.GetRequiredService<LoggingLevelSwitch>())
+                .CreateLogger();
+            return host.Services
+                .GetService<MetabaseCLIBuilder>()?
+                .Build()
+                .Invoke(args)??1;
+        }
 
-            rootCommand
-                .AppendCommand(CommandBuilder.BuildAuthCommand())
-                .AppendFactoriesCommand(factories)
-                .AppendCommand(CommandBuilder.BuildPullCommand(
-                    (CollectionFactory)(factories.First()), factories.Skip(1)
-                ))
-                .AppendCommand(CommandBuilder.BuildPushCommand(
-                    (CollectionFactory)(factories.First()), factories.Skip(1)
-                ));
-            return rootCommand.InvokeAsync(args);
+        static void ConfigureServices(IServiceCollection services)
+        {
+            Assembly
+                .GetEntryAssembly()?
+                .GetTypesAssignableFrom<EntityFactory>()
+                .ToList()
+                .ForEach(t => services.AddSingleton(typeof(EntityFactory), t));
+            Assembly
+                .GetEntryAssembly()?
+                .GetTypesAssignableFrom<ICommandBuilder>()
+                .Where(t => t != typeof(EntityFactory))
+                .ToList()
+                .ForEach(t => services.AddSingleton(typeof(ICommandBuilder), t));
+            services
+                .AddSingleton<CollectionFactory>()
+                .AddSingleton<MetabaseCLIBuilder>()
+                .AddSingleton<SessionCredentials>()
+                .AddSingleton<LoggingLevelSwitch>()
+                .AddSingleton<Session>();
         }
     }
 }

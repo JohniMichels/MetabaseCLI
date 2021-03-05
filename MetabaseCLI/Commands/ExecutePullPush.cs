@@ -12,40 +12,29 @@ using System.Reactive.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using MetabaseCLI.Entities;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 
 namespace MetabaseCLI
 {
     public static partial class CommandBuilder
     {
-        internal static Command BuildAuthCommand()
-        {
-            return new Command(
-                "auth",
-                "Gets a X-Metabase-Session token for requests to the server."
-            )
-            {
-                Handler = CommandHandler.Create(
-                    async (Session session, IConsole console) =>
-                        console.Out.WriteLine(await session.InvalidateSession())
-                )
-            };
-        }
 
         private static IDictionary<int, string> IdToPath(
             CollectionFactory collectionFactory,
             int? customRoot,
             bool includePersonal,
             bool includeArchived,
-            Regex excludePattern,
-            Session session
+            Regex excludePattern
         )
         {
-            var serverRequest = collectionFactory.Get(session)
+            var serverRequest = collectionFactory.Get(includeArchivedItems: includeArchived)
                 .Select(c => (
                     location: (string)((c.TryGetValue("location", out var l) ? l??"" : "").TrimEnd('/') + $"/{c["id"]}") + "/",
                     id: (int?)(int.TryParse((c["id"]??"").ToString(), out int i) ? i : null),
-                    owner: (c.TryGetValue("personal_owner_id", out var o) ? (int?)o : null),
+                    owner: c.TryGetValue("personal_owner_id", out var o) ? (int?)o : null,
                     name: (string)(c["name"]??"untitled"),
                     archived: (bool)(c.TryGetValue("archived", out var a) ? a : false)
                     )
@@ -67,41 +56,50 @@ namespace MetabaseCLI
                 )
                 .Where(c => !customRoot.HasValue || c.location.Contains($"/{customRoot}/") || c.id == customRoot.Value)
                 .Where(c => customRoot.HasValue || includePersonal || !c.isPersonalOwned)
-                .Where(c => includeArchived || !c.isArchived)
                 .Where(c => !excludePattern.IsMatch(c.path))
                 .ToDictionary(item => item.id, item => item.path);
         }
 
-        private async static Task ExecutePull(
+        internal async static Task ExecutePull(
             CollectionFactory collectionFactory,
             IEnumerable<EntityFactory> targetFactories,
-            Session session,
             bool includePersonal,
             bool includeArchived,
             DirectoryInfo localPath,
             int? customRoot,
-            Regex excludePattern
+            Regex excludePattern,
+            ILogger logger
         )
         {
+            logger.LogTrace("Clearing contents inside {LocalPath}", localPath.FullName);
             localPath.Create();
             var basePath = localPath.FullName;
             localPath.Delete(true);
-            var idPaths = IdToPath(collectionFactory, customRoot, includePersonal, includeArchived, excludePattern, session);
-            idPaths.Values.Select(
+
+            logger.LogTrace("Retrieving server collection structure");
+            var idPaths = IdToPath(
+                collectionFactory, customRoot, includePersonal,
+                includeArchived, excludePattern);
+            logger.LogDebug("Server structure is {@CollectionStructure}", idPaths);
+
+            logger.LogTrace("Starting local replication");
+            idPaths.Values.Distinct().Select(
                 f => basePath.TrimEnd('/') + f
-            ).ToList().ForEach(f => Directory.CreateDirectory(f));
-            await targetFactories.Select(
-                f => f.Get(session).Select(i => (type: f.Name, item: i))
+            ).ToList().ForEach(f => {
+                Directory.CreateDirectory(f);
+                logger.LogTrace("Created local directory {NewDirectory}", f);
+            });
+            _ = await targetFactories.Select(
+                f => f.Get(includeArchivedItems: includeArchived).Select(i => (type: f.Name, item: i))
                 ).ToObservable().Merge()
                 .Where(item =>
-                    (!customRoot.HasValue && !((int?)(item.item["collection_id"])).HasValue) ||
-                    idPaths.ContainsKey((int?)(item.item["collection_id"]) ?? -1))
-                .Where(item => includeArchived || !(bool)(item.item["archived"]))
+                    (!customRoot.HasValue && !((int?)item.item["collection_id"]).HasValue) ||
+                    idPaths.ContainsKey((int?)item.item["collection_id"] ?? -1))
                 .Select(item =>
                     {
-                        var itemId = (int)(item.item["id"]);
-                        var itemName = ((string)(item.item["name"]??"untitled")).Replace("/", "_\\_");
-                        var itemCollectionId = (int?)(item.item["collection_id"]);
+                        var itemId = (int)item.item["id"];
+                        var itemName = ((string)(item.item["name"] ?? "untitled")).Replace("/", "_\\_");
+                        var itemCollectionId = (int?)item.item["collection_id"];
                         var targetFolder = (
                                 idPaths.ContainsKey(itemCollectionId ?? -1) ?
                                 basePath.TrimEnd('/') + idPaths[itemCollectionId ?? -1] :
@@ -112,9 +110,14 @@ namespace MetabaseCLI
                     }
                 )
                 .Where(item => !excludePattern.IsMatch(item.path))
-                .Do(
-                    item =>
+                .Do(item =>
                     {
+                        logger.LogTrace(
+                            "Writing to {LocalPath} {EntityType} {EntityId}",
+                            item.path,
+                            item.path.Split('.').Last().Replace("mb", ""),
+                            (int)item.item["id"]
+                            );
                         using var f = File.CreateText(item.path);
                         f.WriteLine(
                             JsonConvert.SerializeObject(item.item, Formatting.Indented)
@@ -123,61 +126,27 @@ namespace MetabaseCLI
                 );
         }
 
-        internal static Command BuildPullCommand(
-            CollectionFactory collectionFactory,
-            IEnumerable<EntityFactory> targetFactories
-        )
-        {
-            var pullCommand = new Command(
-                "pull",
-                $"Pulls {string.Join(", ", targetFactories.Select(c => c.Name + "s"))} and " +
-                "collections from the server into the specified directory using the server collection structure"
-            )
-            {
-                Handler =
-                    CommandHandler.Create(
-                    (
-                        Session session,
-                        bool includePersonal,
-                        bool includeArchived,
-                        DirectoryInfo localPath,
-                        int? customRoot,
-                        Regex excludePattern
-                    ) =>
-                        ExecutePull(
-                            collectionFactory,
-                            targetFactories,
-                            session,
-                            includePersonal,
-                            includeArchived,
-                            localPath,
-                            customRoot, 
-                            excludePattern
-                        ) 
-                )
-            }.AddCollectionFilteringOptions()
-            .AddInternalPathArgument();
-            return pullCommand;
-        }
-
-        private static async Task ExecutePush(
+        internal static async Task ExecutePush(
             CollectionFactory collectionFactory,
             IEnumerable<EntityFactory> targetFactories,
-            Session session,
             bool includePersonal,
             bool includeArchived,
             DirectoryInfo localPath,
             int? customRoot,
             Regex excludePattern,
-            IConsole console
+            ILogger logger
         )
         {
             var basePath = localPath.FullName;
-            var idPaths = IdToPath(collectionFactory, customRoot, includePersonal, includeArchived, excludePattern, session);
-            var pathId = new ConcurrentDictionary<string, int>(idPaths.Reverse());
+            logger.LogTrace("Retrieving server collection structure");
+            var idPaths = IdToPath(collectionFactory, customRoot, includePersonal, includeArchived, excludePattern);
+            logger.LogDebug("Server structure is {@CollectionStructure}", idPaths);
+            var pathId = idPaths.Reverse();
+            logger.LogDebug("Reverse server structure is {@CollectionStructure}", pathId);
             var localPaths = localPath
                 .GetDirectories("*", SearchOption.AllDirectories)
                 .Select(d => d.FullName.Replace(basePath,"") + "/");
+            logger.LogDebug("Local paths is currently {@LocalPaths}", localPaths);
 
             var targetFactoriesFiles = targetFactories
                 .Select(f => (file: $"mb{f.Name}", factory: f))
@@ -188,13 +157,13 @@ namespace MetabaseCLI
                 targetFactoriesFiles.Keys.Join(")|(") +
                 ")"
             );
-
             var factoryIds = targetFactories
                 .ToDictionary(
                     f => f,
                     f => new ConcurrentBag<int>()
                 )!;
 
+            var padLock = new object();
             var createCollectionsRequest = localPaths
                 .OrderBy(p => p)
                 .Where(p => !pathId.ContainsKey(p))
@@ -203,23 +172,37 @@ namespace MetabaseCLI
                 .Select(g => g
                     .ToObservable()
                     .Select(p => collectionFactory.Create(
-                        session,
                         new Dictionary<string, dynamic?>()
                         {
                             {"name", p.Split('/', StringSplitOptions.RemoveEmptyEntries).Last().Replace("_\\_", "/")},
-                            {"parent_id", pathId.TryGetValue(p.Split("/", StringSplitOptions.RemoveEmptyEntries).SkipLast(1).Join("/") + "/", out var parentId) ? parentId : null},
+                            {"parent_id", pathId.TryGetValue("/" + p.Split("/", StringSplitOptions.RemoveEmptyEntries).SkipLast(1).Join("/") + "/", out var parentId) ? parentId.First() : null},
                             {"color", "#999999"}
                         }.RemoveParentWhitespace())
-                        .Do(r => pathId.TryAdd(p, (int)r["id"])))
+                        .Do(r => 
+                        {
+                            lock (padLock)
+                            {
+                                pathId.Add(p, (int)r["id"]);
+                            }
+                        }))
                     .Merge())
                 .ToObservable()
                 .Concat();
-            var archiveCollectionsRequest = idPaths
+            var archiveNonDefinedPathsRequest = idPaths
                 .Values
                 .Where(p => !localPaths.Contains(p))
-                .Select(p => pathId.TryGetValue(p, out var i) ? i : throw new ArgumentException("The required archive path does not exist"))
-                .Select(id => collectionFactory.Archive(session, id))
+                .SelectMany(p => pathId.TryGetValue(p, out var i) ? i : throw new ArgumentException("The required archive path does not exist"))
+                .Select(id => collectionFactory.Archive(id))
                 .ToObservable().Merge();
+
+            var archiveMultipleDefinedRequest = pathId
+                .Values
+                .SelectMany(i => i.Skip(1))
+                .Select(id => collectionFactory.Archive(id))
+                .ToObservable().Merge();
+
+            var archiveCollectionsRequest = archiveMultipleDefinedRequest
+                .Concat(archiveNonDefinedPathsRequest);
 
             var collectionsRequest = archiveCollectionsRequest
                 .Merge(createCollectionsRequest);
@@ -235,15 +218,15 @@ namespace MetabaseCLI
                         int? position = pathId.TryGetValue(
                             (f.Directory?.FullName.Replace(basePath, "")??"") + "/",
                             out var p) ?
-                            p :
+                            p.First() :
                             null;
                         content = factory.AtPosition(
                             content,
                             position
                         );
                         return (content.ContainsKey("id") ?
-                            factory.Update(session, content, (int)content["id"]) :
-                            factory.Create(session, content))
+                            factory.Update(content, (int)content["id"]) :
+                            factory.Create(content))
                             .Select(r => (factory, entity: r));
                     }
                 )
@@ -252,13 +235,13 @@ namespace MetabaseCLI
                 .Do(item => factoryIds[item.factory].Add((int)item.entity["id"]));
 
             var archiveRequest = targetFactories.ToObservable()
-                .SelectMany(f => f.Get(session).Select(entity => (factory: f, entity)))
+                .SelectMany(f => f.Get().Select(entity => (factory: f, entity)))
                 .Where(item => 
-                    pathId.Values.Contains(((int?)item.entity[item.factory.CollectionField])??-1)
+                    pathId.Values.SelectMany(v => v).Contains(((int?)item.entity[item.factory.CollectionField])??-1)
                     || (item.entity[item.factory.CollectionField] == customRoot)
                 )
                 .Where(item => !factoryIds[item.factory].Contains((int)item.entity["id"]))
-                .SelectMany(item => item.factory.Archive(session, (int)item.entity["id"]));
+                .SelectMany(item => item.factory.Archive((int)item.entity["id"]));
 
             var entitiesRequest = upsertRequest
                 .Select(item => item.entity)
@@ -270,48 +253,5 @@ namespace MetabaseCLI
 
         }
 
-        internal static Command BuildPushCommand(
-            CollectionFactory collectionFactory,
-            IEnumerable<EntityFactory> targetFactories
-        )
-        {
-            var pushCommand = new Command(
-                "push",
-                $"Pushes {string.Join(", ", targetFactories.Select(c => c.Name + "s"))} and " +
-                "collections from the specified directory into the server"
-            )
-            {
-                Handler = 
-                    CommandHandler.Create(
-                        (
-                            async (
-                                Session session,
-                                bool includePersonal,
-                                bool includeArchived,
-                                DirectoryInfo localPath,
-                                int? customRoot,
-                                Regex excludePattern,
-                                IConsole console
-                            ) =>
-                            {
-                                await ExecutePush(
-                                    collectionFactory,
-                                    targetFactories,
-                                    session,
-                                    includePersonal,
-                                    includeArchived,
-                                    localPath,
-                                    customRoot,
-                                    excludePattern,
-                                    console
-                                );
-                            }
-                        )
-                    )
-            }.AddCollectionFilteringOptions()
-            .AddInternalPathArgument();
-
-            return pushCommand;
-        }
     }
 }

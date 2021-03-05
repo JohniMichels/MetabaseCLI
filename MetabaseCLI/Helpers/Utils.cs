@@ -7,6 +7,7 @@ using System.CommandLine.IO;
 using System.CommandLine.Parsing;
 using System.Linq;
 using System.Reactive.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace MetabaseCLI
@@ -81,13 +82,13 @@ namespace MetabaseCLI
                 (
                     items.Select(i =>
                         i switch {
-                            IArgument arg => (SymbolResult?)r.FindResultFor(arg),
-                            IOption opt => (SymbolResult?)r.FindResultFor(opt),
+                            IArgument arg => r.FindResultFor(arg),
+                            IOption opt => r.FindResultFor(opt),
                             ICommand com => (SymbolResult?)r.FindResultFor(com),
                             _ => throw new ArgumentException("Only arguments, options and commands are allowed")
                         }).Where(s => r.Children.Contains(s)).Count()
                 ) switch {
-                    int v when ((v >= minItems) && (v <= maxItems)) => null,
+                    int v when (v >= minItems) && (v <= maxItems) => null,
                     _ => "Use either " +
                         string.Join(", ", items.SkipLast(1).Select(t => t.Name)) +
                         " or " + items.Last().Name
@@ -108,12 +109,14 @@ namespace MetabaseCLI
         internal static string Join(this IEnumerable<string> source, string separator)
             => string.Join(separator, source);
 
-        internal static IDictionary<TValue, TKey> Reverse<TKey, TValue>(
+        internal static MultiValueDictionary<TValue, TKey> Reverse<TKey, TValue>(
             this IDictionary<TKey, TValue> dictionary
         )
         where TValue : notnull
         {
-            return dictionary.ToDictionary(kv => kv.Value, kv => kv.Key);
+            var result = new MultiValueDictionary<TValue, TKey>();
+            dictionary.ToList().ForEach(kv => result.Add(kv.Value, kv.Key));
+            return result;
         }
 
         internal static IDictionary<TKey, TValue> RemoveNullValues<TKey, TValue>(
@@ -121,5 +124,15 @@ namespace MetabaseCLI
         )
         where TKey : notnull
         => dictionary.Where(kv => kv.Value == null).ToDictionary(kv => kv.Key, kv => kv.Value!);
+
+        internal static IEnumerable<Type> GetTypesAssignableFrom<T>(this Assembly assembly)
+            => assembly.GetTypesAssignableFrom(typeof(T));
+        internal static IEnumerable<Type> GetTypesAssignableFrom(this Assembly assembly, Type compareType)
+        {
+            return assembly
+                .DefinedTypes
+                .Where(t => compareType.IsAssignableFrom(t) && compareType != t);
+        }
+
     }
 }

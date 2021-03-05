@@ -7,7 +7,7 @@ namespace MetabaseCLI
 {
     public class DashboardFactory: EntityFactory
     {
-        public DashboardFactory(): base(
+        public DashboardFactory(Session session): base(
             "dashboard",
             new []{
                 "id",
@@ -18,6 +18,7 @@ namespace MetabaseCLI
                 "parameters",
                 "archived"
             },
+            session,
             new Dictionary<string, IEnumerable<string>>() {
                 {
                     "ordered_cards",
@@ -82,14 +83,14 @@ namespace MetabaseCLI
             int dashId = afterCreate["id"];
             if(!beforeCreate.ContainsKey("ordered_cards"))
             {
-                return this.Get(session, dashId);
+                return Get(dashId);
             }
             
             return CreateDashCards(
                 session,
                 dashId,
                 beforeCreate["ordered_cards"]?.ToObject<IEnumerable<IDictionary<string, dynamic?>>>())
-                .Concat(this.Get(session, dashId))
+                .Concat(Get(dashId))
                 .LastAsync();
         }
 
@@ -103,11 +104,10 @@ namespace MetabaseCLI
 
             if(!beforeUpdate.ContainsKey("ordered_cards"))
             {
-                return Get(session, dashId);
+                return Get(dashId);
             }
 
-            var deletions = this.Get(
-                    session,
+            var deletions = Get(
                     dashId,
                     internalFields: this.InternalFields.Merge(
                         new Dictionary<string, IEnumerable<string>>()
@@ -129,7 +129,7 @@ namespace MetabaseCLI
                     beforeUpdate["ordered_cards"]?.ToObject<IEnumerable<IDictionary<string, dynamic?>>>()!)
             );
             var updates = (new[] { deletions, creations }).ToObservable().SelectMany(o => o);
-            return updates.Concat(this.Get(session, dashId)).LastAsync();
+            return updates.Concat(Get(dashId)).LastAsync();
         }
     }
 }

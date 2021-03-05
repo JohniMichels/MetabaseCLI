@@ -3,7 +3,7 @@ namespace MetabaseCLI.Entities
 {
     public class CardFactory : EntityFactory
     {
-        public CardFactory():
+        public CardFactory(Session session):
         base(
             "card",
             new [] {
@@ -15,7 +15,8 @@ namespace MetabaseCLI.Entities
                 "display",
                 "visualization_settings",
                 "archived"
-            }
+            },
+            session
         ){ }
     }
 }

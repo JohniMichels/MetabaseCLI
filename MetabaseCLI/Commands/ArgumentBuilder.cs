@@ -7,12 +7,55 @@ using System.CommandLine.Parsing;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace MetabaseCLI
 {
     public static partial class ArgumentBuilder
     {
+
+        internal static Option<string> SetServerOption(SessionCredentials sessionCredentials) =>
+            SetValueOption(sessionCredentials, "Server", "url");
+        internal static Option<string> SetUserNameOption(SessionCredentials sessionCredentials) =>
+            SetValueOption(sessionCredentials, "UserName");
+
+        internal static Option SetPasswordOption(SessionCredentials sessionCredentials) =>
+            SetValueOption(sessionCredentials, "Password");
+
+        private static Option<string> SetValueOption(SessionCredentials sessionCredentials, string name, string? customDescription = null) =>
+            new(
+                aliases: new string[] { "-" + name.First().ToString().ToLower(), "--" + name.ToLower() },
+                description: $"The {customDescription ?? name.ToLower()} used on server calls",
+                parseArgument: result =>
+                {
+                    var value = result.Tokens[0].Value;
+                    value = string.IsNullOrWhiteSpace(value) ?
+                        Environment.GetEnvironmentVariable($"MB_{name.ToUpper()}") ?? "" :
+                        value;
+                    sessionCredentials[name] = value;
+                    return value;
+                }
+            ){IsRequired = true};
+
+
+        internal static Option SetVerbosityOption(LoggingLevelSwitch loggingLevelSwitch) 
+        => new Option<int>(
+            aliases: new[] { "-v", "--verbose" },
+            description: "Defines the verbosity of the logger",
+            parseArgument: result =>
+            {
+                var minLevel = (LogEventLevel)Math.Max((int)LogEventLevel.Error - int.Parse(result.Tokens[0].Value), 0);
+                loggingLevelSwitch.MinimumLevel = minLevel;
+                return int.Parse(result.Tokens[0].Value);
+            }
+        )
+        {
+            AllowMultipleArgumentsPerToken = true
+        };
 
         internal static T AddIdArgument<T>(this T command, string entity, IArgumentArity arity)
         where T : Command
@@ -114,14 +157,11 @@ namespace MetabaseCLI
         }
         internal static IDictionary<string, dynamic?> ParseContent(string content, FileInfo file)
         {
-            return !string.IsNullOrWhiteSpace(content) ?
-                JsonConvert.DeserializeObject<IDictionary<string, dynamic?>>(content) :
-                (IDictionary<string, dynamic?>)(
-                    new JsonSerializer().Deserialize(
-                        file.OpenText(),
-                        typeof(IDictionary<string, dynamic?>)
-                    )
-                )!;
+            return JsonConvert.DeserializeObject<IDictionary<string, dynamic?>>(
+                !string.IsNullOrEmpty(content) ?
+                content :
+                file.OpenText().ReadToEnd()
+            );
         }
 
         internal static T AddCollectionFilteringOptions<T>(this T command)

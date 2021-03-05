@@ -18,12 +18,12 @@ namespace MetabaseCLI
             )
             {
                 Handler = CommandHandler.Create(
-                    async (Session session, int? id, IConsole console) =>
+                    async (int? id, IConsole console) =>
                         console.Out.Write(
                             JsonConvert.SerializeObject(
                                 !id.HasValue ?
-                                factory.Get(session).ToListObservable() :
-                                await factory.Get(session, id.Value),
+                                factory.Get().ToListObservable() :
+                                await factory.Get(id.Value),
                                 Formatting.Indented
                             )
                         )
@@ -42,9 +42,8 @@ namespace MetabaseCLI
             )
             {
                 Handler = CommandHandler.Create(
-                    async (Session session, string stringContent, FileInfo fileContent, IConsole console) =>
+                    async (string stringContent, FileInfo fileContent, IConsole console) =>
                         await factory.Create(
-                            session,
                             ArgumentBuilder.ParseContent(stringContent, fileContent))
                 )
             }.AddFileAndStringContent(
@@ -60,9 +59,8 @@ namespace MetabaseCLI
             )
             {
                 Handler = CommandHandler.Create(
-                    async (Session session, string stringContent, FileInfo fileContent, int id, IConsole console) =>
+                    async (string stringContent, FileInfo fileContent, int id, IConsole console) =>
                         await factory.Update(
-                            session,
                             ArgumentBuilder.ParseContent(stringContent, fileContent),
                             id)
                 )
@@ -83,8 +81,8 @@ namespace MetabaseCLI
             )
             {
                 Handler = CommandHandler.Create(
-                    async (Session session, int id, IConsole console) =>
-                        await factory.Delete(session, id)
+                    async (int id, IConsole console) =>
+                        await factory.Delete(id)
                 )
             }.AddIdArgument(
                 factory.Name,
@@ -100,8 +98,8 @@ namespace MetabaseCLI
             )
             {
                 Handler = CommandHandler.Create(
-                    async (Session session, int id, IConsole console) =>
-                        await factory.Archive(session, id)
+                    async (int id, IConsole console) =>
+                        await factory.Archive(id)
                 )
             }.AddIdArgument(
                 factory.Name,

@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace MetabaseCLI
 {
@@ -39,20 +40,64 @@ namespace MetabaseCLI
             this Session session
         )
         {
-            return session.Client.DefaultRequestHeaders.Contains("X-Metabase-Session") ?
-                Observable.Return(session.Client.DefaultRequestHeaders.GetValues("X-Metabase-Session").First()) :
-                InternalSend<IDictionary<string, string>>(
-                    session.Credentials,
-                    c => Observable.FromAsync(() => session.Client.PostAsync("session", c))
-                ).Select(d => d["id"]
-                ).Do(id =>
+            lock (padLock)
+            {
+                session.Logger.LogTrace(
+                    "Checking if session is authenticated for {Server}",
+                    session.SessionCredentials.Server
+                );
+                if (session.Client.DefaultRequestHeaders.Contains("X-Metabase-Session"))
                 {
-                    lock (padLock)
-                    {
-                        if (!session.Client.DefaultRequestHeaders.Contains("X-Metabase-Session"))
-                            session.Client.DefaultRequestHeaders.Add("X-Metabase-Session", id);
-                    }
-                });
+                    session.Logger.LogTrace(
+                        "Session is already authenticated for {Server} with {SessionId}",
+                        session.SessionCredentials.Server,
+                        session.Client.DefaultRequestHeaders.GetValues("X-Metabase-Session").First()
+                    );
+                    return Observable.Return(
+                        session
+                            .Client
+                            .DefaultRequestHeaders
+                            .GetValues("X-Metabase-Session")
+                            .First()
+                    );
+                }
+                else
+                {
+                    session.Logger.LogTrace(
+                        "Session is not authenticated for {Server}",
+                        session.SessionCredentials.Server
+                    );
+                    session.Logger.LogDebug(
+                        "Requesting new authentication token for {Server}", 
+                        session.SessionCredentials.Server);
+                    return InternalSend<IDictionary<string, string>>(
+                        session.SessionCredentials,
+                        c => Observable.FromAsync(() =>
+                            session.Logger.LogWebRequest(
+                                "POST",
+                                session.SessionCredentials.Server,
+                                "session",
+                                session.SessionCredentials,
+                                session.Client.PostAsync("session", c)))
+                        ).Select(d => d["id"]
+                        ).Catch<string, Exception>(
+                            ex =>
+                            {
+                                session.Logger.LogError(
+                                    ex, 
+                                    "Authentication failed for {Server}",
+                                    session.SessionCredentials.Server);
+                                throw ex;
+                            }
+                        ).Do(
+                            id => session.Logger.LogInformation("Successfully authenticated for {Server} with {SessionId}",
+                                session.SessionCredentials.Server,
+                                id)
+                        ).Do(
+                            id => session.Client.DefaultRequestHeaders.Add("X-Metabase-Session", id)
+                        );
+                }
+            }
         }
 
         private static IObservable<TResponse> InvalidatedSend<TResponse>(
@@ -86,28 +131,46 @@ namespace MetabaseCLI
             string path,
             object objectBody
         )
-        where TResponse : notnull => session.InvalidatedSend<TResponse>(
-                objectBody,
-                content => Observable.FromAsync(() =>session.Client.PostAsync(path, content))
-            );
-
+        where TResponse : notnull => 
+        session.InvalidatedSend<TResponse>(
+            objectBody,
+            content => Observable.FromAsync(() =>
+                session.Logger.LogWebRequest(
+                        "POST",
+                        session.SessionCredentials.Server,
+                        path,
+                        objectBody,
+                        session.Client.PostAsync(path, content))));
+        
         public static IObservable<TResponse> Get<TResponse>(
             this Session session,
             string path
         )
-        where TResponse : notnull => session.InvalidatedSend<TResponse>(
-                Observable.FromAsync(() => session.Client.GetAsync(path))
-        );
+        where TResponse : notnull => 
+        session.InvalidatedSend<TResponse>(
+            Observable.FromAsync(() =>
+                session.Logger.LogWebRequest(
+                    "GET",
+                    session.SessionCredentials.Server,
+                    path,
+                    "",
+                    session.Client.GetAsync(path))));
         
         public static IObservable<TResponse> Put<TResponse>(
             this Session session,
             string path,
             object objectBody
         )
-        where TResponse : notnull => session.InvalidatedSend<TResponse>(
-                objectBody,
-                content => Observable.FromAsync(() => session.Client.PutAsync(path, content))
-            );
+        where TResponse : notnull => 
+        session.InvalidatedSend<TResponse>(
+            objectBody,
+            content => Observable.FromAsync(() =>
+                session.Logger.LogWebRequest(
+                    "PUT",
+                    session.SessionCredentials.Server,
+                    path,
+                    objectBody,
+                    session.Client.PutAsync(path, content))));
 
         public static IObservable<TResponse> Delete<TResponse>(
             this Session session,
@@ -116,7 +179,13 @@ namespace MetabaseCLI
         where TResponse : notnull
         {
             var invalidator = session.InvalidateSession();
-            var requester = Observable.FromAsync(() => session.Client.DeleteAsync(path));
+            var requester = Observable.FromAsync(() => 
+                session.Logger.LogWebRequest(
+                    "DELETE",
+                    session.SessionCredentials.Server,
+                    path,
+                    "",
+                    session.Client.DeleteAsync(path)));
             return invalidator
                 .Select<string, (string Auth, object Response)>(i => (i, new object()))
                 .Concat(requester.Select(r => (Auth: "", Response: (object)r)))
@@ -125,4 +194,4 @@ namespace MetabaseCLI
                 .Cast<TResponse>();
         }
     }
-} 
+}

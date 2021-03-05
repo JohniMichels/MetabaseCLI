@@ -7,33 +7,35 @@ using Newtonsoft.Json;
 using System.Text;
 using System.Reactive.Linq;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace MetabaseCLI
 {
     public class Session
     {
-
         internal HttpClient Client { get; set; } = new HttpClient();
-        internal SessionCredentials Credentials { get; set; }
+        public ILogger Logger { get; private set; }
+        public SessionCredentials SessionCredentials { get; set; }
 
-        public Session(SessionCredentials credentials)
+        public Session(ILogger<Session> logger, SessionCredentials sessionCredentials)
         {
-            Client = new HttpClient
-            {
-                BaseAddress = new Uri(
-                string.Format("{0}/api/", credentials.Server.TrimEnd('/'))
-            )
-            };
-            Credentials = credentials;
+            Logger = logger;
+            SessionCredentials = sessionCredentials;
+            SessionCredentials.PropertyChanged += (sender, e) => RedefineCredentials();
         }
 
-        public Session(string server, string user, string password) : this(
-            new SessionCredentials()
-            {
-                Server = server,
-                UserName = user,
-                Password = password
-            }
-        ){ }
+        public SessionCredentials GetCredentials()
+        {
+            return SessionCredentials;
+        }
+
+        private void RedefineCredentials()
+        {
+            var credentials = GetCredentials();
+            Client.BaseAddress = new Uri(
+                string.Format("{0}/api/", credentials.Server.TrimEnd('/')));
+            Client.DefaultRequestHeaders.Remove("X-Metabase-Session");
+        }
     }
 }
