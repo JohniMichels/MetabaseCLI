@@ -60,7 +60,10 @@ namespace MetabaseCLI
             IEnumerable<IDictionary<string, dynamic?>> cards)
         {
             return cards.ToObservable()
-                .SelectMany(card => 
+                .Zip(
+                    Observable.Interval(new TimeSpan(1000000)).Take(cards.Count()),
+                    (l, r) => l)
+                .Select(card => 
                     session
                         .Post<IDictionary<string, dynamic?>>(
                             $"dashboard/{dashId}/cards",
@@ -71,7 +74,7 @@ namespace MetabaseCLI
                             session.Put<IDictionary<string, dynamic?>>(
                                 $"dashboard/{dashId}/cards",
                                 GenerateCardPutRequestBody(card, (int)(response["id"]))))
-                );
+                ).Concat();
         }
 
         private IObservable<IDictionary<string, dynamic?>> AfterCreate(

@@ -171,6 +171,9 @@ namespace MetabaseCLI
                 .OrderBy(g => g.Key)
                 .Select(g => g
                     .ToObservable()
+                    .Do(p => {
+                        logger.LogInformation($"Creating collection {p}");
+                    })
                     .Select(p => collectionFactory.Create(
                         new Dictionary<string, dynamic?>()
                         {
@@ -180,6 +183,7 @@ namespace MetabaseCLI
                         }.RemoveParentWhitespace())
                         .Do(r => 
                         {
+                            logger.LogInformation($"Created collection {p} with id {r["id"]}");
                             lock (padLock)
                             {
                                 pathId.Add(p, (int)r["id"]);

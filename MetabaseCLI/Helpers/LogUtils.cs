@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -89,23 +90,22 @@ namespace MetabaseCLI
         {
             var hashId = Guid.NewGuid().GetHashCode();
             var stopWatch = new Stopwatch();
+            var result = new HttpResponseMessage(HttpStatusCode.InternalServerError);
             stopWatch.Start();
             try
             {
                 logger.LogWebRequestStart(method, server, url, body, hashId);
-                
-                var result = await generator;
+                result = await generator;
                 stopWatch.Stop();
                 logger.LogWebRequestEnd(method, server, url, hashId, stopWatch.ElapsedMilliseconds);
-                return result;
+                result.EnsureSuccessStatusCode();
             }
             catch (Exception ex)
             {
                 stopWatch.Stop();
                 logger.LogWebRequestFailed(method, server, url, hashId, ex, stopWatch.ElapsedMilliseconds);
-                throw;
             }
+            return result;
         }
-
     }
 }
