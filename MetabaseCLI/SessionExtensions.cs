@@ -30,7 +30,6 @@ namespace MetabaseCLI
             return request
                 .SelectMany(response =>
                 {
-                    response.EnsureSuccessStatusCode();
                     return Observable.FromAsync(() => response.Content.ReadAsStringAsync());
                 }).Select(response => JsonConvert.DeserializeObject<TResponse>(response));
         }
@@ -79,6 +78,7 @@ namespace MetabaseCLI
                                 "session",
                                 session.SessionCredentials,
                                 session.Client.PostAsync("session", c)))
+                            .Do(r => r.EnsureSuccessStatusCode())
                         ).Select(d => d["id"]
                         ).Catch<string, Exception>(
                             ex =>
@@ -110,7 +110,7 @@ namespace MetabaseCLI
             var invalidator = session.InvalidateSession();
             var requester = InternalSend<TResponse>(
                 objectBody,                     
-                content => generator(content)   
+                content => generator(content)
             );                                  
             return invalidator.Select<string, (string Auth, object Response)>(i => (i, new object()))
                 .Concat(requester.Select(i => (Auth: "", Response: (object)i)))
@@ -136,11 +136,11 @@ namespace MetabaseCLI
             objectBody,
             content => Observable.FromAsync(() =>
                 session.Logger.LogWebRequest(
-                        "POST",
-                        session.SessionCredentials.Server,
-                        path,
-                        objectBody,
-                        session.Client.PostAsync(path, content))));
+                    "POST",
+                    session.SessionCredentials.Server,
+                    path,
+                    objectBody,
+                    session.Client.PostAsync(path, content))));
         
         public static IObservable<TResponse> Get<TResponse>(
             this Session session,
